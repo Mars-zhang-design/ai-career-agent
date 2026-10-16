@@ -1,0 +1,13 @@
+.venv*/
+venv/
+.env
+.env.*
+!.env.example
+__pycache__/
+*.pyc
+.idea/
+.pytest_cache/
+*.log
+chroma_db/
+
+.web-libs/
