@@ -1,0 +1,15 @@
+fastapi==0.141.1
+uvicorn==0.52.3
+pydantic==2.12.4
+python-dotenv==1.2.1
+openai==3.1.0
+chromadb==1.5.9
+sentence-transformers==6.0.0
+redis==8.1.0
+mysql-connector-python==9.7.0
+bcrypt==5.0.0
+PyJWT==2.13.0
+langchain-openai==1.6.0
+langchain-core==1.6.0
+langgraph==1.0.3
+protobuf==6.33.6
