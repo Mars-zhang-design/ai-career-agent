@@ -97,3 +97,41 @@ class SegmentTests(unittest.TestCase):
             with self.assertRaises(NoEffectiveOptimization):
                 optimize_resume(RESUME,JD,ANALYSIS)
         self.assertEqual(model.call_count,2)
+
+
+    def test_general_polish_does_not_require_job_evidence(self):
+        from schemas import GeneralRewritePlan
+        data=make_plan().model_dump();data['edits'][0]['jd_evidence']=''
+        plan=GeneralRewritePlan.model_validate(data)
+        with patch('resume_optimizer.structured_call',return_value=plan) as model:
+            result=optimize_resume(RESUME,'通用表达标准',ANALYSIS,mode='general')
+        self.assertEqual(model.call_args.args[0],GeneralRewritePlan)
+        self.assertEqual(model.call_args.args[2]['analysis'],{})
+        self.assertEqual(model.call_args.args[2]['job_description'],'')
+        self.assertEqual(result['optimized_resume'],RESUME.replace(ORIGINAL,REWRITTEN))
+        self.assertEqual(result['rewrite_suggestions'][0]['jd_evidence'],'')
+        self.assertTrue(validate_plan(self.segments,plan,JD))
+
+    def test_existing_partial_skill_is_not_rejected(self):
+        analysis={**ANALYSIS,'missing_skills':['Python']}
+        with patch('resume_optimizer.structured_call',return_value=make_plan()):
+            result=optimize_resume(RESUME,JD,analysis,mode='general')
+        self.assertIn('Python',result['optimized_resume'])
+
+    def test_missing_skill_cannot_be_added_or_borrowed(self):
+        from resume_optimizer import validate_resume_result
+        for source in (RESUME,RESUME+'\n其他项目：RAG'):
+            result={'match_score':60,'missing_skills':['RAG'],
+                    'optimized_resume':source.replace(ORIGINAL,REWRITTEN+'完成RAG。'),
+                    'rewrite_suggestions':[{'original':ORIGINAL,'optimized':REWRITTEN+'完成RAG。'}]}
+            self.assertTrue(validate_resume_result(source,result))
+
+    def test_general_mode_keeps_numbers_proficiency_and_evidence_checks(self):
+        for overrides in ({'optimized':REWRITTEN+'提升50%。'},
+                          {'optimized':'精通Python。'+REWRITTEN},
+                          {'evidence':['虚构个人经历']}):
+            with self.subTest(overrides=overrides):
+                with patch('resume_optimizer.structured_call',return_value=make_plan(**overrides)):
+                    with self.assertRaises(UnsafeOptimization) as caught:
+                        optimize_resume(RESUME,'通用表达标准',ANALYSIS,mode='general')
+                self.assertTrue(caught.exception.reasons)

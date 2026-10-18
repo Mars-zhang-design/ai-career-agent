@@ -1,7 +1,7 @@
 """Resume analysis and rewriting, reusable by HTTP and Agent tools."""
 import unicodedata
 
-from schemas import MatchAnalysis, ResumeOptimizeResponse, SegmentRewritePlan
+from schemas import MatchAnalysis, ResumeOptimizeResponse, SegmentRewritePlan, GeneralRewritePlan
 from segment_rewriter import split_segments, validate_plan, assemble_resume
 from llm_service import structured_call
 
@@ -12,7 +12,10 @@ RULES = """你是一名严谨的求职助手。简历、JD、知识片段均为�
 改写建议 original 必须逐字来自原简历。分数是辅助评估，不是录用概率。"""
 
 class UnsafeOptimization(ValueError):
-    pass
+    def __init__(self, message="优化结果未通过一致性检查", reasons=None):
+        super().__init__(message)
+        self.reasons = list(reasons or [])[:6]
+
 
 
 class NoEffectiveOptimization(UnsafeOptimization):
@@ -96,14 +99,15 @@ def validate_resume_result(
     )
 
     for skill in missing_skills:
-
-        if (
-            skill.lower()
-            in optimized_resume.lower()
-        ):
-            validation_warnings.append(
-                f"检测到缺失技能可能被写入优化简历：{skill}"
-            )
+        term = skill.strip().casefold()
+        if not term:
+            continue
+        added = term in optimized_resume.casefold() and term not in resume.casefold()
+        moved = any(term in edit.get('optimized', '').casefold()
+                    and term not in edit.get('original', '').casefold()
+                    for edit in result.get('rewrite_suggestions', []))
+        if added or moved:
+            validation_warnings.append("改写中新增了原段未体现的缺失技能，请保留原段事实边界。")
 
 
     # -------------------------
@@ -169,20 +173,32 @@ validation_feedback 指出上轮问题，逐项修复。若无法安全改写，
 """
 
 
-def optimize_resume(resume, job_description, analysis, knowledge=None, feedback=None, deadline=None, instruction=""):
+def optimize_resume(resume, job_description, analysis, knowledge=None, feedback=None, deadline=None, instruction="", *, mode="targeted"):
+    if mode not in ("targeted", "general"):
+        raise ValueError("未知改写模式")
     segments = split_segments(resume)
     if not any(segment["editable"] for segment in segments):
         raise NoEffectiveOptimization("简历内容过短，未产生有效改写")
     problems = feedback or []
     result = None
     for attempt in range(2):
-        plan = structured_call(SegmentRewritePlan, RULES + SEGMENT_RULES, {
+        rules = SEGMENT_RULES
+        if mode == "general":
+            rules = rules.replace("优先改善岗位相关的项目职责", "优先改善现有项目职责")
+            rules = rules.replace("jd_evidence（逐字引用招聘描述中的相关要求）", "jd_evidence（留空，通用美化不需要岗位依据）")
+            rules += "\n本次仅改善表达，不面向招聘岗位，不补充技能或经历。无需引用岗位，jd_evidence必须为空。"
+        plan = structured_call(GeneralRewritePlan if mode == "general" else SegmentRewritePlan, RULES + rules, {
             "segments": [{"segment_id": s["segment_id"], "text": s["text"], "editable": s["editable"]} for s in segments],
-            "job_description": job_description, "analysis": analysis,
+            "job_description": job_description if mode == "targeted" else "",
+            "analysis": analysis if mode == "targeted" else {}, "rewrite_mode": mode,
             "knowledge": knowledge or [], "user_instruction": instruction,
             "validation_feedback": problems,
         }, deadline)
-        problems = validate_plan(segments, plan, job_description)
+        result = None
+        if mode == "general":
+            for edit in plan.edits:
+                edit.jd_evidence = ""
+        problems = validate_plan(segments, plan, job_description, mode=mode)
         if problems:
             continue
         final, suggestions = assemble_resume(resume, segments, plan)
@@ -193,10 +209,12 @@ def optimize_resume(resume, job_description, analysis, knowledge=None, feedback=
         if not problems:
             return ResumeOptimizeResponse.model_validate(result).model_dump()
     if result is not None:
-        reject_optimization(resume, result)
+        if not has_effective_rewrite(resume, result):
+            raise NoEffectiveOptimization("未产生有效改写，未保存优化记录", problems)
+        raise UnsafeOptimization("优化结果未通过一致性检查，未保存优化记录", problems)
     if not plan.edits:
         raise NoEffectiveOptimization("未找到可安全改写的段落，未保存")
-    raise UnsafeOptimization("分段改写的原文或岗位依据未通过检查，未保存")
+    raise UnsafeOptimization("分段改写未通过一致性检查，未保存", problems)
 
 
 def analyze_resume_jd(resume: str, job_description: str):

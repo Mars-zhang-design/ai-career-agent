@@ -62,6 +62,8 @@ class CareerTests(unittest.TestCase):
     def setUp(self):
         self.sources=patch('career_service.source_text',return_value=(RESUME,JD))
         self.sources.start();self.addCleanup(self.sources.stop)
+        retrieval = patch('rag_chroma.retrieve', return_value=[])
+        retrieval.start();self.addCleanup(retrieval.stop)
         self.token=service.envelope(report(),1).report_token
 
     def test_report_is_account_bound_and_signature_checked(self):
@@ -141,6 +143,41 @@ class CareerTests(unittest.TestCase):
         with patch('repositories.create_resume_text') as create:
             with self.assertRaises(service.ReportError): service.promote(1,self.token)
         create.assert_not_called()
+
+    def test_polish_uses_general_mode_and_does_not_save_invalid_output(self):
+        from resume_optimizer import UnsafeOptimization
+        with patch('resume_optimizer.optimize_resume',side_effect=UnsafeOptimization('校验失败',['段落3：不能新增、删除或修改原文数字。'])) as rewrite, \
+             patch('repositories.save_optimization_result') as save:
+            with self.assertRaises(UnsafeOptimization): service.polish(1,self.token)
+        self.assertEqual(rewrite.call_args.kwargs['mode'],'general')
+        save.assert_not_called()
+
+    def test_polish_api_shows_controlled_validation_reason(self):
+        from resume_optimizer import UnsafeOptimization
+        main.app.dependency_overrides[main.get_current_user]=lambda:{'id':1}
+        self.addCleanup(main.app.dependency_overrides.clear)
+        with patch('career_service.polish',side_effect=UnsafeOptimization('校验失败',['段落3：不能新增、删除或修改原文数字。'])):
+            response=TestClient(main.app).post('/career/polish',json={'report_token':self.token})
+        self.assertEqual(response.status_code,502)
+        detail=response.json()['detail']
+        self.assertEqual(detail['code'],'invalid_optimization')
+        self.assertIn('原文数字',detail['message'])
+
+    def test_target_structured_items_do_not_turn_goals_into_facts(self):
+        from target_preview import build_target_preview
+        from career_models import TargetResponse
+        r=report();r.requirements[0].status='partial';r.requirements[1].status='unknown'
+        r.requirements[2].status='gap'
+        r.tasks=[LearningTask(requirement_id='r1',objective='练习接口',actions=['实现'],deliverable='测试报告',acceptance=['可运行'])]
+        result=TargetResponse.model_validate(build_target_preview(r,RESUME))
+        self.assertEqual(result.current_resume,RESUME)
+        self.assertEqual(result.confirmed_additions,[])
+        self.assertEqual([i.status for i in result.items],['complete','confirm','confirm'])
+        self.assertEqual(result.items[0].deliverable,'测试报告')
+        self.assertEqual(result.items[1].objective,'')
+        self.assertIn('【部分满足 · 待完成】',result.text)
+        self.assertIn('【待确认】',result.text)
+        self.assertNotIn('完成后可据实填写',result.text)
 
 
 class ImportTests(unittest.TestCase):

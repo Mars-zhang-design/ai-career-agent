@@ -10,6 +10,10 @@ class RagRequest(BaseModel):
 class SourceMetadata(BaseModel):
     chunk_id: int
     source: str
+    title: str = ""
+    source_url: str = ""
+    category: str = ""
+    updated_at: str = ""
 
 
 class RagSource(BaseModel):
@@ -164,4 +168,13 @@ class SegmentEdit(BaseModel):
 
 class SegmentRewritePlan(BaseModel):
     edits: List[SegmentEdit] = Field(default_factory=list, max_length=6)
+    warnings: List[str] = Field(default_factory=list)
+
+
+class GeneralSegmentEdit(SegmentEdit):
+    jd_evidence: str = ""
+
+
+class GeneralRewritePlan(BaseModel):
+    edits: List[GeneralSegmentEdit] = Field(default_factory=list, max_length=6)
     warnings: List[str] = Field(default_factory=list)

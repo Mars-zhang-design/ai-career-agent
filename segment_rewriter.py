@@ -11,7 +11,7 @@ def split_segments(resume):
             if match.group().strip()]
 
 
-def validate_plan(segments, plan, jd):
+def validate_plan(segments, plan, jd, *, mode="targeted"):
     lookup = {s["segment_id"]: s for s in segments}
     problems, used = [], set()
     if not plan.edits:
@@ -32,7 +32,7 @@ def validate_plan(segments, plan, jd):
             problems.append(prefix + "必须说明具体问题和修改理由。")
         if any(not quote.strip() or quote not in original for quote in edit.evidence):
             problems.append(prefix + "原文依据必须逐字引用这个段落，不能引用其他经历。")
-        if not edit.jd_evidence.strip() or edit.jd_evidence not in jd:
+        if mode == "targeted" and (not edit.jd_evidence.strip() or edit.jd_evidence not in jd):
             problems.append(prefix + "岗位依据必须逐字来自用户的招聘描述。")
         numbers = lambda text: Counter(re.findall(r"\d+(?:[.,]\d+)*%?", text))
         if numbers(original) != numbers(edit.optimized):

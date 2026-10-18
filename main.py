@@ -55,7 +55,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(
 
 app = FastAPI(
     title="AI Career Assistant API",
-    version="1.0.0"
+    version="1.1.0"
 )
 
 
@@ -373,3 +373,6 @@ async def optimization_validation_error(request, exc):
 
 from career_api import create_router
 app.include_router(create_router(get_current_user))
+
+from history_api import create_router as create_history_router
+app.include_router(create_history_router(get_current_user))

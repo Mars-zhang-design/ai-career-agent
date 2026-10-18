@@ -11,3 +11,10 @@ __pycache__/
 chroma_db/
 
 .web-libs/
+
+# Local RAG artifacts and credentials
+model_cache/
+.cache/
+.huggingface/
+*.pem
+*.key

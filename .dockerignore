@@ -13,3 +13,9 @@ tests/
 chroma_db/
 
 .web-libs/
+
+model_cache/
+.cache/
+.huggingface/
+*.pem
+*.key

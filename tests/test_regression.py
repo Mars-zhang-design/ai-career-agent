@@ -315,7 +315,7 @@ class ReliabilityTests(unittest.TestCase):
         self.assertEqual(result.match_score,75)
         self.assertEqual(factory.call_count,2)
         self.assertEqual(factory.call_args.kwargs['max_retries'],0)
-        self.assertEqual(factory.call_args.kwargs['timeout'],15)
+        self.assertEqual(factory.call_args.kwargs['timeout'],30)
 
     def test_permanent_model_error_is_not_retried(self):
         import llm_service
